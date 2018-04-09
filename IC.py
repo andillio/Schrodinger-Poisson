@@ -1,5 +1,4 @@
 # a module for initial condition
-# broken right now but Im not sure why
 
 import numpy as np
 import scipy.fftpack as sp
