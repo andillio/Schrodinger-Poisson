@@ -1,4 +1,4 @@
-# two stream instability
+# compares evolution of classical system, schrodinger-poisson (SP) system in pure state, and SP system in mixed state
 
 import numpy as np 
 import pylab as pyl 
@@ -8,71 +8,67 @@ import time
 import sys
 import math
 import scipy.fftpack as sp
-import husimi_sp as hu
-import husimi as hu_
-import testDeriv
+import husimi_sp as hu  # used for the pure states
+import husimi as hu_ # used for the mixed states
 
 
 # animation details
 frames_ = 500 # number of frames in video
 framesteps_ = 100 # min number of steps per frame
 
-ofile_ = "CompareT5_17pt.mp4"
+ofile_ = "CompareT5_17pt.mp4" # output file
 
-CIC = True
-max_ =True
+CIC = True # if true uses CIC method for classical solver, otherwise uses a segment method
+max_ = True # if true only plots the max value of the electric field over time, otherwise plots the entire electric field 
 
-order = 5
 dt = 1.e-4 # fraction of T_scale (plasma periods)
 
-L = 1.
+L = 1. # length of box
 
 n = 4*4096 # number of particles
 N = 128 # number of grid cells
-Mtot = 1.
-mpart = 1./n
+Mtot = 1. # total mass
+mpart = 1./n  # mass of each particle
 
 xg = (0.5+np.arange(N))/N # center of x grid cells
-dx = L/N
+dx = L/N 
 
-lam =  1.#1./4.
-v_th = .5#.3 # units of u_c
+lam =  1. # wavelength of perturbation
+v_th = .5 # thermal velocity in units of the u_c (the critical velocity for the analogous two stream instability)
 
-########## CIC stuff ###################
-C = -1.
-omega0 = np.sqrt(-C/2.)
+########## Classical stuff ###################
+C = -1. # constant in Poissons equation
+omega0 = np.sqrt(-C/2.) # plasma frequency 
 
-u_c = lam*omega0/(np.sqrt(2)*np.pi)
+u_c = lam*omega0/(np.sqrt(2)*np.pi) # critical velocity for two stream instability with omega0 plasma frequency
 
-width = .08
-v0 = .4
+v0 = .4 # perturbation amplitude (units of u_c)
 
-T_scale = np.pi*2./omega0
+T_scale = np.pi*2./omega0 # scales time for classical evolution
 #######################################
 
 ########## Schr #######################
 N_x = 256 # number of "pixels"
-N_u = 256
+N_u = 256 # number of pixels in u direction, it should probably be the same
 
-dxS = L/N_x
-dk = 2.*np.pi/L # kpc^-1
+dxS = L/N_x 
+dk = 2.*np.pi/L 
 
 f = 5 # factor to multiply dx by in sig_x
-sig_x = dxS*f
+sig_x = dxS*f # the spacial smoothing factor in the husimi distribution
 
-CS = -.000002#-.000005#-2.0e-4
+CS = -.000002 # constant in Poisson equation for schrodinger solutions
 
-hbar_ = 1.0e-6#
-hbar = hbar_*mpart
-eps0 = -4.*np.pi/CS * Mtot/L
+hbar_ = 1.0e-6 # hbar/mpart, i.e. hbar-tilde
+hbar = hbar_*mpart # regular hbar
+eps0 = -4.*np.pi/CS * Mtot/L # eps0, not sure this is actually ever used
 
-omega0S = np.sqrt(-CS/2.)
-u_cS = lam*omega0S/(np.sqrt(2)*np.pi)
-T_scaleS = np.pi*2./omega0S
+omega0S = np.sqrt(-CS/2.) # plasma frequency for schrodinger soln
+u_cS = lam*omega0S/(np.sqrt(2)*np.pi) # critical velocity for schr soln
+T_scaleS = np.pi*2./omega0S # scaling time for schr soln
 
 # create the line in x and k
 x = dxS*(.5+np.arange(0, N_x))
-#x = dx*(.5+np.arange(-N_x/2, N_x/2))
 x_ = x.copy()
 kx = 2*np.pi*sp.fftfreq(N_x, d = dxS)
 
@@ -81,32 +77,32 @@ du = u[1] - u[0]
 
 #Sa = (50/7)*np.array([-5,-4,-3,-2,-1,0, 1,2, 3,4,5])
 #Sa = (50/4)*np.array([-7,-5,-3,-1,0, 1, 3,5,7])
-Sa = np.arange(-200,201)#10*np.array([-1,1])#
-v0S = v0
-noise = 0
+Sa = np.arange(-200,201)#10*np.array([-1,1]) # streams, v[i] = hbar_*4*np.pi*np.pi*Sa[i]/(lam*L*np.sqrt(-CS))
+v0S = v0 # perturbation 
 
 
 class sim(object):
 	def __init__(self):
-		self.r = None
-		self.w = None
+		# classical stuff
+		self.r = None # positions
+		self.w = None # contains the weights per stream
 		self.n = None # an array containing the number of particles per stream
-		self.v = None
-		self.weight = None
+		self.v = None # velocities
+		self.weight = None 
 
-		self.K = None
-		self.K_ = None
+		self.K = None # kernel for pure states
+		self.K_ = None # kernel for mixed states
 
-		self.D2 = None
+		self.D2 = None # second derivative operator in position basis, times constants (i.e. kinetic term in hamiltonian)
 
-		self.psi_r = None
-		self.rho = None
-		self.rho_r = None
+		self.psi_r = None # wavefunction in position basis
+		self.rho = None # density operator/matrix in position basis
+		self.rho_r = None 
 		self.unc = None
 
-		self.T = 0
-		self.t = []
-		self.ECl = []
+		self.T = 0 # total elapse in sim time
+		self.t = [] # array of times
+		self.ECl = [] # classical electric field
 		self.EH = []
 		self.EH_ = []
 		self.start_ = 0
@@ -514,16 +510,12 @@ def getPsiIC():
 	s.rho = np.zeros((N_x, N_x)) + 0j
 
 	for i in range(len(Sa)):
-		w_ = w[i] 
-#		w_ += np.random.uniform(0,w_*noise)
+		w_ = w[i]
 		Sa_ = Sa[i]
 		phi = -v0S*u_cS*L**2 / np.pi**2 *np.cos(2*np.pi*x/lam) - x*hbar_*np.pi*2.*Sa_/L
 		psi_ = np.exp(phi/hbar_*1.j)
 		psi_ /= (np.abs(psi_)**2).sum()*dxS
 		s.rho += w_*np.outer(psi_,np.conj(psi_))
-
-	#s.rho = np.load("testFile.npy")
-#	s.rho = s.rho*np.random.uniform(1-noise,1+noise,(N_x,N_x))
 
 	return psi
 
